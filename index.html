@@ -1,0 +1,1283 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="유튜브 쇼츠용 음악 마스터링 무료 도구. 잡음 제거, 이퀄라이저, -14 LUFS 음량 맞춤, True-Peak 리미터, WAV/MP3 저장. 파일은 업로드되지 않고 내 브라우저에서 처리됩니다.">
+<script>(function(){var t=new URLSearchParams(location.search).get("theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);})();</script>
+<style>html{color-scheme:light}body{margin:0}img{max-width:100%}</style>
+<title>쇼츠 마스터링 콘솔</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* 레이아웃: 상단 트랜스포트(파형·재생·모니터) → 오토 바 → 3개 랙 모듈(잡음 / EQ / 다이내믹스·출력) → 내보내기 */
+:root {
+  --bg: #e9ecf0;
+  --panel: #f7f8fa;
+  --well: #dfe3e9;
+  --ink: #18202c;
+  --muted: #5a6577;
+  --line: #cdd3dc;
+  --accent: #c96f0c;
+  --accent-soft: #c96f0c26;
+  --cool: #2b63c4;
+  --good: #23824f;
+  --bad: #b8352a;
+  --f-ui: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --f-num: "IBM Plex Mono", ui-monospace, "Consolas", monospace;
+  --r: 6px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #10141b; --panel: #171d26; --well: #0c1016; --ink: #e5e9f0; --muted: #8d98aa;
+  --line: #273041; --accent: #f0a23c; --accent-soft: #f0a23c2b; --cool: #6c9fff;
+  --good: #4cc282; --bad: #ff7a6b; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #10141b; --panel: #171d26; --well: #0c1016; --ink: #e5e9f0; --muted: #8d98aa;
+  --line: #273041; --accent: #f0a23c; --accent-soft: #f0a23c2b; --cool: #6c9fff;
+  --good: #4cc282; --bad: #ff7a6b; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-ui); font-size: 14px; line-height: 1.55; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-block: 20px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 14px; }
+.num { font-family: var(--f-num); font-variant-numeric: tabular-nums; }
+button, select, input { font: inherit; color: inherit; }
+button:focus-visible, select:focus-visible, input:focus-visible, label.btn:focus-within { outline: 2px solid var(--cool); outline-offset: 2px; }
+
+/* 헤더 */
+.top { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; }
+.top h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; text-wrap: balance; }
+.top p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--panel);
+  border-radius: var(--r); padding: 8px 14px; cursor: pointer; font-weight: 500; white-space: nowrap; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+:root[data-theme="dark"] .btn.primary { color: #1b1206; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn.primary { color: #1b1206; } }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; }
+
+/* 패널 공통 */
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); }
+.ptitle { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 14px;
+  border-bottom: 1px solid var(--line); font-size: 12px; letter-spacing: .06em; color: var(--muted); font-weight: 500; }
+.ptitle b { color: var(--ink); font-weight: 700; letter-spacing: .02em; font-size: 13px; }
+.pbody { padding: 14px; display: grid; gap: 12px; }
+
+/* 트랜스포트 */
+.transport { display: grid; grid-template-columns: auto 1fr; gap: 14px; padding: 14px; align-items: center; }
+.play { width: 52px; height: 52px; border-radius: 50%; border: 0; background: var(--accent); color: #fff; cursor: pointer;
+  display: grid; place-items: center; }
+.play svg { width: 20px; height: 20px; fill: currentColor; }
+.tinfo { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 14px; align-items: baseline; min-width: 0; }
+.fname { font-weight: 700; min-width: 0; overflow-wrap: anywhere; }
+.chip { font-size: 11px; padding: 2px 8px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); font-weight: 500; margin-left: 6px; white-space: nowrap; }
+.time { color: var(--muted); font-size: 13px; }
+.wave-box { grid-column: 1 / -1; position: relative; height: 96px; background: var(--well); border-radius: 4px; cursor: pointer; overflow: hidden; }
+.wave-box canvas { width: 100%; height: 100%; display: block; }
+.monitor-row { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; justify-content: space-between; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.seg button { border: 0; background: transparent; padding: 7px 14px; cursor: pointer; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--panel); font-weight: 500; }
+.meter { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.meter .bar { width: 120px; height: 8px; background: var(--well); border-radius: 4px; overflow: hidden; position: relative; }
+.meter .bar i { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--good); }
+.meter .bar i.hot { background: var(--bad); }
+.check { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
+.check input { accent-color: var(--accent); width: 16px; height: 16px; }
+
+/* 상태줄 */
+.status { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--muted); min-height: 22px; }
+.status .pb { flex: 0 0 160px; height: 4px; background: var(--well); border-radius: 2px; overflow: hidden; }
+.status .pb i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+
+/* 오토 */
+.auto { display: grid; grid-template-columns: minmax(220px, 300px) 1fr; }
+.auto-side { padding: 16px; border-right: 1px solid var(--line); display: grid; gap: 12px; align-content: start; }
+.auto-side h2 { margin: 0; font-size: 16px; }
+.auto-side p { margin: 0; color: var(--muted); font-size: 13px; }
+.report { padding: 14px 16px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.report .empty { color: var(--muted); font-size: 13px; }
+.note { display: grid; grid-template-columns: 9.5em 1fr; gap: 12px; padding: 7px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
+.note:last-child { border-bottom: 0; }
+.note b { font-weight: 500; }
+.note span { color: var(--muted); min-width: 0; }
+.stats { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: var(--muted); }
+.stats b { color: var(--ink); font-weight: 500; }
+
+/* 랙 */
+.racks { display: grid; grid-template-columns: 1fr 1.6fr 1fr; gap: 14px; align-items: start; }
+.ctl { display: grid; gap: 4px; }
+.ctl-head { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.ctl-head output { font-family: var(--f-num); font-variant-numeric: tabular-nums; color: var(--accent); font-size: 12px; }
+.ctl small { color: var(--muted); font-size: 12px; line-height: 1.45; }
+input[type=range] { width: 100%; accent-color: var(--accent); margin: 2px 0; }
+select { width: 100%; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 6px 8px; }
+.hint { font-size: 12px; color: var(--muted); background: var(--well); border-radius: 4px; padding: 8px 10px; line-height: 1.5; }
+.eq-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.btn.sm { padding: 5px 11px; font-size: 13px; }
+.eq-step { font-size: 12px; color: var(--muted); }
+.eq-last { font-size: 12px; color: var(--muted); flex: 1 1 12em; min-width: 0; overflow-wrap: anywhere; }
+.eq-last b { color: var(--ink); font-weight: 500; }
+.eq-canvas { width: 100%; height: 170px; display: block; background: var(--well); border-radius: 4px; }
+.eq-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 14px; }
+.row2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; align-items: end; }
+
+/* 내보내기 */
+.export { display: grid; grid-template-columns: minmax(240px, 320px) 1fr; }
+.exp-side { padding: 16px; border-right: 1px solid var(--line); display: grid; gap: 10px; align-content: start; }
+.exp-side h2 { margin: 0; font-size: 16px; }
+.exp-side p { margin: 0; color: var(--muted); font-size: 13px; }
+.fmts { display: grid; gap: 7px; padding: 10px 12px; background: var(--well); border-radius: 4px; }
+.fmts .lbl { font-size: 12px; color: var(--muted); letter-spacing: .04em; }
+.fmt-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.fmt-row small { color: var(--muted); font-size: 12px; }
+.fmt-row select { width: auto; padding: 3px 6px; font-size: 13px; }
+.results { padding: 14px 16px; overflow-x: auto; min-width: 0; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font-weight: 500; color: var(--muted); font-size: 12px; }
+td.num { text-align: right; }
+.ok { color: var(--good); font-weight: 500; }
+.ng { color: var(--bad); font-weight: 500; }
+
+.drop { position: fixed; inset: 0; background: color-mix(in srgb, var(--bg) 85%, transparent); border: 3px dashed var(--accent);
+  display: grid; place-items: center; font-size: 20px; font-weight: 700; z-index: 20; }
+
+.foot { max-width: 1180px; margin: 0 auto; padding-block: 0 28px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); font-size: 12px; color: var(--muted); }
+.foot p { margin: 2px 0; }
+.foot a { color: var(--cool); }
+@media (max-width: 980px) {
+  .racks { grid-template-columns: 1fr 1fr; }
+  .racks .eq-mod { grid-column: 1 / -1; order: -1; }
+}
+@media (max-width: 680px) {
+  .racks, .auto, .export { grid-template-columns: 1fr; }
+  .auto-side, .exp-side { border-right: 0; border-bottom: 1px solid var(--line); }
+  .eq-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .note { grid-template-columns: 1fr; gap: 2px; }
+  .status .pb { flex-basis: 90px; }
+}
+@media (prefers-reduced-motion: reduce) { .status .pb i { transition: none; } }
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>쇼츠 마스터링 콘솔</h1>
+      <p>음악 파일을 넣고, 들으면서 잡음과 EQ를 조절하세요. 오토 보정은 곡을 분석해 설정을 자동으로 맞춥니다.</p>
+    </div>
+    <label class="btn primary" for="file">음악 파일 열기
+      <input type="file" id="file" accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg,.aac">
+    </label>
+  </header>
+
+  <div class="status" id="status" aria-live="polite"><span id="statusText">준비 중</span><span class="pb" id="pbWrap" hidden><i id="pb"></i></span></div>
+
+  <!-- 트랜스포트 -->
+  <section class="panel transport">
+    <button class="play" id="play" aria-label="재생">
+      <svg viewBox="0 0 24 24" id="playIcon"><path d="M7 4.5v15l13-7.5z"/></svg>
+    </button>
+    <div class="tinfo">
+      <div class="fname" id="fname">—</div>
+      <div class="time num" id="time">0:00.0 / 0:00.0</div>
+    </div>
+    <div class="wave-box" id="waveBox" title="클릭해서 원하는 위치로 이동">
+      <canvas id="wave"></canvas>
+    </div>
+    <div class="monitor-row">
+      <div class="seg" role="group" aria-label="들을 소리 선택">
+        <button id="monOrig" aria-pressed="false">원본</button>
+        <button id="monProc" aria-pressed="true">보정</button>
+        <button id="monResid" aria-pressed="false">제거된 잡음</button>
+      </div>
+      <label class="check"><input type="checkbox" id="match" checked> 원본도 같은 음량으로 맞춰 비교</label>
+      <div class="meter"><span>출력</span><span class="bar"><i id="meterBar"></i></span><span class="num" id="meterVal">-∞ dB</span></div>
+    </div>
+  </section>
+
+  <!-- 오토 -->
+  <section class="panel auto">
+    <div class="auto-side">
+      <h2>오토 보정</h2>
+      <p>잡음 크기, 주파수 균형, 저음 위상, 다이내믹을 측정해서 아래 모든 설정을 자동으로 맞춥니다. 적용 후에도 직접 고칠 수 있어요.</p>
+      <label class="check"><input type="checkbox" id="shorts" checked> 유튜브 쇼츠 모드 (폰 스피커 기준)</label>
+      <button class="btn primary" id="autoBtn">오토 보정 실행</button>
+    </div>
+    <div class="report" id="report">
+      <div class="stats" id="stats"></div>
+      <div class="empty" id="reportEmpty">아직 실행하지 않았습니다. 지금은 기본 쇼츠 설정이 적용되어 있습니다.</div>
+      <div id="notes"></div>
+    </div>
+  </section>
+
+  <!-- 랙 -->
+  <div class="racks">
+    <section class="panel">
+      <div class="ptitle"><b>잡음 제거</b><span>스펙트럴 게이트</span></div>
+      <div class="pbody">
+        <label class="check"><input type="checkbox" id="dnOn" checked> 잡음 제거 켜기</label>
+        <div class="ctl">
+          <div class="ctl-head"><label for="dnStr">강도</label><output id="dnStrV">0.6</output></div>
+          <input type="range" id="dnStr" min="0.1" max="1" step="0.05" value="0.6">
+          <small>손을 놓으면 다시 계산합니다. 소리가 물속처럼 뭉개지면 낮추세요.</small>
+        </div>
+        <div class="hint" id="dnInfo">잡음 견본: 곡에서 가장 조용한 0.5초 구간을 자동으로 찾습니다. 파형의 노란 구간이 견본입니다.</div>
+        <div class="hint">위의 <b>제거된 잡음</b>을 눌러 깎여 나간 소리만 들어보세요. 노래 소리가 섞여 들리면 강도가 너무 높은 겁니다.</div>
+      </div>
+    </section>
+
+    <section class="panel eq-mod">
+      <div class="ptitle"><b>이퀄라이저</b><span>실선 = EQ 곡선 · 음영 = 실시간 스펙트럼</span></div>
+      <div class="pbody">
+        <div class="eq-tools">
+          <button class="btn sm" id="eqUndo" title="이전 설정으로 (Ctrl+Z)" disabled>&#9664; 이전</button>
+          <button class="btn sm" id="eqRedo" title="되돌린 설정 다시 적용 (Ctrl+Y)" disabled>이후 &#9654;</button>
+          <span class="eq-step num" id="eqStep">1 / 1</span>
+          <span class="eq-last" id="eqLast">처음 설정</span>
+          <button class="btn sm" id="eqFlat" title="모든 밴드를 0 dB로">평평하게</button>
+        </div>
+        <canvas class="eq-canvas" id="eqCanvas"></canvas>
+        <div class="eq-grid" id="eqGrid"></div>
+        <div class="row2">
+          <div class="ctl">
+            <div class="ctl-head"><label for="hpf">초저음 컷</label><output id="hpfV">35 Hz</output></div>
+            <input type="range" id="hpf" min="20" max="80" step="1" value="35">
+          </div>
+          <label class="check"><input type="checkbox" id="mono" checked> 120 Hz 아래 저음 모노</label>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="ptitle"><b>다이내믹스 · 출력</b><span>마스터 버스</span></div>
+      <div class="pbody">
+        <div class="ctl">
+          <div class="ctl-head"><label for="comp">컴프레서 (소리 밀도)</label><output id="compV">30%</output></div>
+          <input type="range" id="comp" min="0" max="100" step="5" value="30">
+        </div>
+        <div class="ctl">
+          <div class="ctl-head"><label for="exc">익사이터 (또렷함·따뜻함)</label><output id="excV">15%</output></div>
+          <input type="range" id="exc" min="0" max="60" step="5" value="15">
+        </div>
+        <div class="row2">
+          <div class="ctl"><label for="target">목표 음량</label>
+            <select id="target"><option value="-14" selected>-14 LUFS (유튜브)</option><option value="-12">-12 LUFS (더 크게)</option><option value="-16">-16 LUFS (잔잔한 곡)</option></select>
+          </div>
+          <div class="ctl"><label for="ceil">최고점 상한</label>
+            <select id="ceil"><option value="-1">-1.0 dBTP</option><option value="-1.5" selected>-1.5 dBTP</option><option value="-2">-2.0 dBTP</option></select>
+          </div>
+        </div>
+        <small style="color:var(--muted);font-size:12px">미리듣기는 실시간 근사치입니다. 내보낼 때는 음량과 최고점을 정밀하게 맞춥니다.</small>
+      </div>
+    </section>
+  </div>
+
+  <!-- 내보내기 -->
+  <section class="panel export">
+    <div class="exp-side">
+      <h2>내보내기</h2>
+      <p>현재 설정으로 전체 곡을 처리합니다 (48 kHz). 형식을 하나 고르면 그 파일 그대로, 여러 개 고르면 zip 하나로 저장됩니다.</p>
+      <div class="fmts" role="group" aria-labelledby="fmtLbl">
+        <span class="lbl" id="fmtLbl">저장 형식 (여러 개 선택 가능)</span>
+        <div class="fmt-row"><label class="check"><input type="checkbox" id="fmtW24" checked> WAV 24-bit</label><small>무손실 · 편집/보관용</small></div>
+        <div class="fmt-row"><label class="check"><input type="checkbox" id="fmtW16"> WAV 16-bit</label><small>무손실 · CD 규격</small></div>
+        <div class="fmt-row"><label class="check"><input type="checkbox" id="fmtMp3" checked> MP3</label>
+          <select id="mp3Rate" aria-label="MP3 음질"><option value="320" selected>320 kbps (최고)</option><option value="256">256 kbps</option><option value="192">192 kbps</option><option value="128">128 kbps (작은 용량)</option></select></div>
+        <small id="mp3Note" style="color:var(--muted);font-size:12px">영상 편집 앱에 넣을 땐 WAV, 공유·전송용은 MP3를 쓰세요.</small>
+      </div>
+      <button class="btn primary" id="exportBtn">마스터링 파일 만들기</button>
+      <button class="btn" id="saveBtn" hidden>마지막 결과를 선택한 형식으로 다시 저장</button>
+      <p id="saveNote" hidden></p>
+    </div>
+    <div class="results">
+      <table>
+        <thead><tr><th>항목</th><th style="text-align:right">원본</th><th style="text-align:right">결과</th><th>기준</th></tr></thead>
+        <tbody id="resBody">
+          <tr><td>음량 (LUFS)</td><td class="num" id="rL0">—</td><td class="num" id="rL1">—</td><td id="rLs">목표값 ±0.5</td></tr>
+          <tr><td>최고점 (dBTP)</td><td class="num" id="rT0">—</td><td class="num" id="rT1">—</td><td id="rTs">상한 이하</td></tr>
+          <tr><td>저음 좌우 일치도</td><td class="num" id="rC0">—</td><td class="num" id="rC1">—</td><td id="rCs">0.9 이상 (1 = 완전 모노)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+<footer class="foot">
+  <p>모든 처리는 이 브라우저 안에서만 이루어집니다. 음악 파일은 어떤 서버로도 업로드되지 않습니다.</p>
+  <p>MP3 인코딩: <a href="https://github.com/zhuker/lamejs" target="_blank" rel="noopener">lamejs</a> (LGPL-3.0) · 라우드니스 측정: ITU-R BS.1770-4 방식 <a id="openFull" href="./" target="_blank" rel="noopener" hidden>· 새 창에서 크게 열기</a></p>
+</footer>
+<div class="drop" id="drop" hidden>여기에 놓으면 불러옵니다</div>
+
+<script type="text/plain" id="dsp-src">// ===== DSP 워커: 잡음 제거 / LUFS / True-Peak 리미터 / 오토 분석 =====
+"use strict";
+
+// ---------- 공통: 바이쿼드 필터 ----------
+function biquadRun(x, b0, b1, b2, a1, a2) {
+  const y = new Float32Array(x.length);
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  for (let i = 0; i < x.length; i++) {
+    const xi = x[i];
+    const yi = b0 * xi + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+    x2 = x1; x1 = xi; y2 = y1; y1 = yi; y[i] = yi;
+  }
+  return y;
+}
+function lowpassCoef(fc, fs, Q) {
+  const w = 2 * Math.PI * fc / fs, c = Math.cos(w), al = Math.sin(w) / (2 * Q), a0 = 1 + al;
+  return [(1 - c) / 2 / a0, (1 - c) / a0, (1 - c) / 2 / a0, -2 * c / a0, (1 - al) / a0];
+}
+
+// ---------- LUFS (ITU-R BS.1770-4) ----------
+function kWeight(x, fs) {
+  let K = Math.tan(Math.PI * 1681.974450955533 / fs);
+  const Vh = Math.pow(10, 3.999843853973347 / 20), Vb = Math.pow(Vh, 0.4996667741545416);
+  let Q = 0.7071752369554196, a0 = 1 + K / Q + K * K;
+  const s1 = biquadRun(x, (Vh + Vb * K / Q + K * K) / a0, 2 * (K * K - Vh) / a0,
+    (Vh - Vb * K / Q + K * K) / a0, 2 * (K * K - 1) / a0, (1 - K / Q + K * K) / a0);
+  K = Math.tan(Math.PI * 38.13547087602444 / fs); Q = 0.5003270373238773;
+  a0 = 1 + K / Q + K * K;
+  return biquadRun(s1, 1, -2, 1, 2 * (K * K - 1) / a0, (1 - K / Q + K * K) / a0);
+}
+// 400ms 블록 라우드니스 배열(LKFS) 반환
+function blockLoudness(chs, fs) {
+  const kw = chs.map(c => kWeight(c, fs));
+  const bl = Math.round(0.4 * fs), hop = Math.round(0.1 * fs), n = chs[0].length;
+  const out = [];
+  for (let s = 0; s + bl <= n; s += hop) {
+    let sum = 0;
+    for (const c of kw) { let e = 0; for (let i = s; i < s + bl; i++) e += c[i] * c[i]; sum += e / bl; }
+    out.push(-0.691 + 10 * Math.log10(sum + 1e-20));
+  }
+  return out;
+}
+function integrated(blocks) {
+  const pw = l => Math.pow(10, (l + 0.691) / 10);
+  const g1 = blocks.filter(l => l > -70);
+  if (!g1.length) return -70;
+  const m1 = g1.reduce((a, l) => a + pw(l), 0) / g1.length;
+  const rel = -0.691 + 10 * Math.log10(m1) - 10;
+  const g2 = g1.filter(l => l > rel);
+  if (!g2.length) return -70;
+  return -0.691 + 10 * Math.log10(g2.reduce((a, l) => a + pw(l), 0) / g2.length);
+}
+function lufs(chs, fs) { return integrated(blockLoudness(chs, fs)); }
+
+// ---------- True-Peak (4배 오버샘플링, 폴리페이즈 FIR) ----------
+const TP_OS = 4, TP_TAPS = 12;
+const TP_FIR = (() => {
+  const L = TP_OS * TP_TAPS, h = new Float32Array(L), mid = (L - 1) / 2;
+  for (let i = 0; i < L; i++) {
+    const t = (i - mid) / TP_OS;
+    const sinc = t === 0 ? 1 : Math.sin(Math.PI * t) / (Math.PI * t);
+    const w = 0.42 - 0.5 * Math.cos(2 * Math.PI * i / (L - 1)) + 0.08 * Math.cos(4 * Math.PI * i / (L - 1));
+    h[i] = sinc * w;
+  }
+  const ph = [];
+  for (let p = 0; p < TP_OS; p++) {
+    const arr = new Float32Array(TP_TAPS); let s = 0;
+    for (let k = 0; k < TP_TAPS; k++) { arr[k] = h[k * TP_OS + p]; s += arr[k]; }
+    for (let k = 0; k < TP_TAPS; k++) arr[k] /= s; // 각 위상 DC 이득 1
+    ph.push(arr);
+  }
+  return ph;
+})();
+// 샘플마다 '그 샘플 주변 보간값 포함' 최대 절대값
+function tpEnvelope(c) {
+  const n = c.length, out = new Float32Array(n), half = TP_TAPS / 2;
+  for (let i = 0; i < n; i++) {
+    let m = Math.abs(c[i]);
+    if (i >= half && i < n - half) {
+      for (let p = 0; p < TP_OS; p++) {
+        const f = TP_FIR[p]; let s = 0;
+        for (let k = 0; k < TP_TAPS; k++) s += f[k] * c[i - half + 1 + k];
+        const a = Math.abs(s); if (a > m) m = a;
+      }
+    }
+    out[i] = m;
+  }
+  return out;
+}
+function truePeakDb(chs) {
+  let m = 0;
+  for (const c of chs) { const e = tpEnvelope(c); for (let i = 0; i < e.length; i++) if (e[i] > m) m = e[i]; }
+  return 20 * Math.log10(m + 1e-12);
+}
+
+// 슬라이딩 최소값 (중앙 창, 단조 덱)
+function slidingMin(x, r) {
+  const n = x.length, out = new Float32Array(n), dq = new Int32Array(n);
+  let h = 0, t = 0, j = 0;
+  for (let i = 0; i < n; i++) {
+    const hi = Math.min(n - 1, i + r);
+    while (j <= hi) { while (t > h && x[dq[t - 1]] >= x[j]) t--; dq[t++] = j; j++; }
+    while (dq[h] < i - r) h++;
+    out[i] = x[dq[h]];
+  }
+  return out;
+}
+function movingAvg(x, w) {
+  const n = x.length, out = new Float32Array(n), r = w >> 1;
+  let s = 0, cnt = 0;
+  const get = i => x[Math.min(n - 1, Math.max(0, i))];
+  for (let i = -r; i <= r; i++) { s += get(i); cnt++; }
+  for (let i = 0; i < n; i++) { out[i] = s / cnt; s += get(i + r + 1) - get(i - r); }
+  return out;
+}
+// 브릭월 True-Peak 리미터
+function tpLimit(chs, fs, ceilDb, gainLin) {
+  const ceil = Math.pow(10, ceilDb / 20), n = chs[0].length;
+  const scaled = chs.map(c => { const y = new Float32Array(n); for (let i = 0; i < n; i++) y[i] = c[i] * gainLin; return y; });
+  const env = scaled.map(tpEnvelope);
+  const need = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const p = Math.max(env[0][i], env[1] ? env[1][i] : 0); need[i] = p > ceil ? ceil / p : 1; }
+  const la = Math.max(1, Math.round(fs * 0.005));
+  const m = slidingMin(need, la);
+  const k = 1 - Math.exp(-1 / (fs * 0.08));
+  let g = 1;
+  for (let i = 0; i < n; i++) { g = g + (1 - g) * k; if (m[i] < g) g = m[i]; m[i] = g; }
+  const sm = movingAvg(m, la + 1);
+  for (const y of scaled) for (let i = 0; i < n; i++) y[i] *= sm[i];
+  return scaled;
+}
+// 목표 LUFS + True-Peak 상한 맞추기 (반복 보정)
+function finalize(chs, fs, target, ceilDb, progress) {
+  let gainDb = target - lufs(chs, fs), out = chs;
+  for (let it = 0; it < 7; it++) {
+    progress && progress(0.25 + it * 0.09, `라우드니스 맞추는 중 (${it + 1}회)`);
+    out = tpLimit(chs, fs, ceilDb, Math.pow(10, gainDb / 20));
+    const cur = lufs(out, fs), err = target - cur;
+    if (Math.abs(err) <= 0.2) break;
+    gainDb += err * (err > 0 ? 1.4 : 1);
+  }
+  const tp = truePeakDb(out);
+  if (tp > ceilDb) { const s = Math.pow(10, (ceilDb - tp - 0.05) / 20); for (const c of out) for (let i = 0; i < c.length; i++) c[i] *= s; }
+  return out;
+}
+
+// ---------- FFT (radix-2) ----------
+function makeFFT(N) {
+  const lev = Math.log2(N) | 0, rev = new Uint32Array(N), cos = new Float64Array(N / 2), sin = new Float64Array(N / 2);
+  for (let i = 0; i < N; i++) { let r = 0; for (let b = 0; b < lev; b++) r |= ((i >> b) & 1) << (lev - 1 - b); rev[i] = r; }
+  for (let i = 0; i < N / 2; i++) { cos[i] = Math.cos(2 * Math.PI * i / N); sin[i] = Math.sin(2 * Math.PI * i / N); }
+  return function fft(re, im, inv) {
+    for (let i = 0; i < N; i++) { const j = rev[i]; if (j > i) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; } }
+    const sg = inv ? 1 : -1;
+    for (let size = 2; size <= N; size <<= 1) {
+      const half = size >> 1, step = N / size;
+      for (let i = 0; i < N; i += size) {
+        for (let j = 0, k = 0; j < half; j++, k += step) {
+          const a = i + j, b = a + half;
+          const wr = cos[k], wi = sg * sin[k];
+          const xr = re[b] * wr - im[b] * wi, xi = re[b] * wi + im[b] * wr;
+          re[b] = re[a] - xr; im[b] = im[a] - xi; re[a] += xr; im[a] += xi;
+        }
+      }
+    }
+    if (inv) for (let i = 0; i < N; i++) { re[i] /= N; im[i] /= N; }
+  };
+}
+
+// 가장 조용한(무음 아닌) 0.5초 구간 시작 샘플
+function quietestWindow(chs, fs) {
+  const w = Math.round(0.5 * fs), n = chs[0].length;
+  let best = -1, bestR = Infinity;
+  for (let s = 0; s + w <= n; s += Math.round(w / 2)) {
+    let e = 0;
+    for (const c of chs) for (let i = s; i < s + w; i += 2) e += c[i] * c[i];
+    const r = Math.sqrt(e / (w / 2 * chs.length));
+    if (r > 1e-5 && r < bestR) { bestR = r; best = s; }
+  }
+  return { start: Math.max(0, best), rms: bestR === Infinity ? 0 : bestR };
+}
+
+// ---------- 잡음 제거 (STFT 스펙트럴 게이팅) ----------
+function denoise(chs, fs, strength, progress) {
+  const N = 2048, hop = 512, B = N / 2 + 1, fft = makeFFT(N);
+  const win = new Float32Array(N);
+  for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N);
+  const norm = 1 / 1.5; // Hann x Hann, 75% 겹침 합 = 1.5
+  const q = quietestWindow(chs, fs);
+  const nLen = Math.round(0.5 * fs), n = chs[0].length;
+  const re = new Float64Array(N), im = new Float64Array(N);
+  const floor = 1 - Math.min(0.97, strength * 0.97);
+  const outs = [];
+  chs.forEach((c, ci) => {
+    // 1) 잡음 지문: 조용한 구간의 주파수별 평균/표준편차(dB)
+    const sum = new Float64Array(B), sq = new Float64Array(B); let cnt = 0;
+    for (let s = q.start; s + N <= q.start + nLen && s + N <= n; s += hop) {
+      for (let i = 0; i < N; i++) { re[i] = c[s + i] * win[i]; im[i] = 0; }
+      fft(re, im, false);
+      for (let k = 0; k < B; k++) { const d = 10 * Math.log10(re[k] * re[k] + im[k] * im[k] + 1e-20); sum[k] += d; sq[k] += d * d; }
+      cnt++;
+    }
+    const thr = new Float64Array(B);
+    for (let k = 0; k < B; k++) { const m = sum[k] / Math.max(cnt, 1), v = Math.max(0, sq[k] / Math.max(cnt, 1) - m * m); thr[k] = m + 1.5 * Math.sqrt(v) + 3; }
+    // 2) 프레임별 마스크 적용
+    const out = new Float32Array(n), mask = new Float64Array(B), raw = new Float64Array(B);
+    mask.fill(1);
+    const frames = Math.ceil((n + N) / hop);
+    for (let f = 0; f < frames; f++) {
+      const s = f * hop - N;
+      for (let i = 0; i < N; i++) { const idx = s + i; re[i] = (idx >= 0 && idx < n ? c[idx] : 0) * win[i]; im[i] = 0; }
+      fft(re, im, false);
+      for (let k = 0; k < B; k++) {
+        const d = 10 * Math.log10(re[k] * re[k] + im[k] * im[k] + 1e-20);
+        const x = (d - thr[k]) / 3; // 임계값 근처는 부드럽게
+        raw[k] = floor + (1 - floor) / (1 + Math.exp(-x));
+      }
+      for (let k = 0; k < B; k++) {
+        const v = (raw[Math.max(0, k - 1)] + 2 * raw[k] + raw[Math.min(B - 1, k + 1)]) / 4;
+        mask[k] = v > mask[k] ? v : mask[k] * 0.6 + v * 0.4; // 빠른 열림, 천천히 닫힘
+      }
+      for (let k = 0; k < B; k++) { re[k] *= mask[k]; im[k] *= mask[k]; if (k > 0 && k < N / 2) { re[N - k] = re[k]; im[N - k] = -im[k]; } }
+      fft(re, im, true);
+      for (let i = 0; i < N; i++) { const idx = s + i; if (idx >= 0 && idx < n) out[idx] += re[i] * win[i] * norm; }
+      if (progress && f % 400 === 0) progress((ci + f / frames) / chs.length, "잡음 제거 중");
+    }
+    outs.push(out);
+  });
+  const resid = chs.map((c, i) => { const r = new Float32Array(n); for (let j = 0; j < n; j++) r[j] = c[j] - outs[i][j]; return r; });
+  return { out: outs, resid, noiseStart: q.start / fs };
+}
+
+// ---------- 오토 분석 ----------
+const BANDS = [
+  { f: 60, lo: 40, hi: 90 }, { f: 150, lo: 100, hi: 220 }, { f: 400, lo: 250, hi: 600 },
+  { f: 1000, lo: 700, hi: 1500 }, { f: 3500, lo: 2500, hi: 5000 }, { f: 10000, lo: 7000, hi: 14000 }];
+// 1kHz 대비 옥타브당 에너지 목표치 (상업 음원 평균 기울기 근사)
+const TARGET = [5, 4, 1.5, 0, -4.5, -10];
+
+function lowCorr(chs, fs) {
+  if (chs.length < 2) return 1;
+  const c = lowpassCoef(120, fs, 0.7071);
+  const run = x => biquadRun(biquadRun(x, ...c), ...c);
+  const l = run(chs[0]), r = run(chs[1]);
+  let lr = 0, ll = 0, rr = 0;
+  for (let i = 0; i < l.length; i++) { lr += l[i] * r[i]; ll += l[i] * l[i]; rr += r[i] * r[i]; }
+  const d = Math.sqrt(ll * rr); return d > 1e-12 ? lr / d : 1;
+}
+
+function analyze(chs, fs, shorts, progress) {
+  progress && progress(0.1, "음량 측정 중");
+  const blocks = blockLoudness(chs, fs);
+  const L = integrated(blocks);
+  progress && progress(0.35, "최고점 측정 중");
+  const tp = truePeakDb(chs);
+  const q = quietestWindow(chs, fs);
+  const noiseDb = 20 * Math.log10(q.rms + 1e-12);
+  // 가장 큰 15초 구간 (미리듣기 음량 보정용)
+  const per = 150; let bestS = 0, bestE = -1e9;
+  for (let i = 0; i + per <= blocks.length; i += 10) {
+    let e = 0; for (let j = i; j < i + per; j++) e += Math.pow(10, blocks[j] / 10);
+    if (e > bestE) { bestE = e; bestS = i; }
+  }
+  progress && progress(0.55, "주파수 분포 분석 중");
+  const N = 4096, fft = makeFFT(N), re = new Float64Array(N), im = new Float64Array(N);
+  const pow = new Float64Array(N / 2 + 1), mono = new Float32Array(chs[0].length);
+  for (let i = 0; i < mono.length; i++) mono[i] = chs.length > 1 ? (chs[0][i] + chs[1][i]) / 2 : chs[0][i];
+  let frames = 0;
+  const step = Math.max(N, Math.floor(mono.length / 400));
+  for (let s = 0; s + N <= mono.length; s += step) {
+    let e = 0; for (let i = 0; i < N; i++) { const w = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N); re[i] = mono[s + i] * w; im[i] = 0; e += mono[s + i] * mono[s + i]; }
+    if (10 * Math.log10(e / N + 1e-20) < L - 20) continue; // 조용한 구간 제외
+    fft(re, im, false);
+    for (let k = 0; k <= N / 2; k++) pow[k] += re[k] * re[k] + im[k] * im[k];
+    frames++;
+  }
+  const bandDb = BANDS.map(b => {
+    let e = 0;
+    for (let k = Math.ceil(b.lo * N / fs); k <= Math.floor(b.hi * N / fs); k++) e += pow[k];
+    return 10 * Math.log10(e / Math.log2(b.hi / b.lo) + 1e-20);
+  });
+  const rel = bandDb.map(d => d - bandDb[3]);
+  progress && progress(0.85, "스테레오 저음 확인 중");
+  const corr = lowCorr(chs, fs);
+  const snr = L - noiseDb, crest = tp - L;
+
+  // ---- 추천값 계산 ----
+  const rec = { eq: [], notes: [] };
+  if (q.rms === 0 || snr > 62) { rec.denoise = 0; rec.notes.push(["잡음이 거의 없음", `조용한 구간이 음악보다 ${snr > 200 ? "매우" : Math.round(snr) + " dB"} 작아서 잡음 제거를 끕니다.`]); }
+  else {
+    rec.denoise = snr > 50 ? 0.4 : snr > 40 ? 0.6 : snr > 30 ? 0.8 : 0.9;
+    rec.notes.push(["배경 잡음 발견", `조용한 구간 잡음이 음악보다 ${Math.round(snr)} dB 작습니다. 잡음 제거 강도 ${rec.denoise.toFixed(1)}로 맞춥니다.`]);
+  }
+  if (frames > 0) {
+    BANDS.forEach((b, i) => {
+      let want = TARGET[i];
+      if (shorts && i === 0) want -= 1.5;      // 폰 스피커는 초저음 재생 불가
+      if (shorts && i === 4) want += 1;        // 보컬 선명도
+      let g = i === 3 ? 0 : Math.max(-4, Math.min(4, (want - rel[i]) * 0.5));
+      rec.eq.push(Math.round(g * 2) / 2);
+    });
+    const names = ["초저음", "저음", "중저음(탁함)", "중음", "보컬 선명도", "공기감(고음)"];
+    const big = rec.eq.map((g, i) => [g, i]).filter(([g]) => Math.abs(g) >= 1.5);
+    if (big.length) rec.notes.push(["음색 균형 보정", big.map(([g, i]) => `${names[i]} ${g > 0 ? "+" : ""}${g} dB`).join(", ")]);
+    else rec.notes.push(["음색 균형 양호", "주파수 균형이 고르게 잡혀 있어 EQ는 아주 조금만 손봅니다."]);
+  } else rec.eq = [0, 0, 0, 0, shorts ? 1 : 0, 0];
+  rec.hpf = shorts ? 35 : 25;
+  rec.mono = shorts || corr < 0.9;
+  rec.notes.push(corr < 0.7
+    ? ["저음 위상 문제", `저음 좌우 일치도가 ${corr.toFixed(2)}로 낮아 폰에서 저음이 사라질 수 있습니다. 120 Hz 아래를 모노로 합칩니다.`]
+    : ["저음 위상 양호", `저음 좌우 일치도 ${corr.toFixed(2)}. ${rec.mono ? "안전을 위해 120 Hz 아래는 모노로 유지합니다." : ""}`]);
+  if (crest > 16) { rec.comp = 60; rec.notes.push(["다이내믹 큼", `최고점과 평균 음량 차이가 ${crest.toFixed(1)} dB로 커서 컴프레서를 조금 강하게(60%) 겁니다.`]); }
+  else if (crest < 9) { rec.comp = 15; rec.notes.push(["이미 많이 압축됨", `최고점과 평균 차이가 ${crest.toFixed(1)} dB뿐이라 컴프레서는 약하게(15%) 둡니다.`]); }
+  else { rec.comp = 35; rec.notes.push(["다이내믹 적당", `최고점과 평균 차이 ${crest.toFixed(1)} dB. 컴프레서 35%로 밀도만 살짝 올립니다.`]); }
+  rec.exciter = shorts ? (rel[5] < TARGET[5] - 3 ? 30 : 15) : 0;
+  progress && progress(1, "분석 완료");
+  return {
+    lufs: L, tp, noiseDb, snr, corr, crest, bandRel: rel, rec,
+    loudestStart: bestS * 0.1, noiseStart: q.start / fs,
+  };
+}
+
+function measure(chs, fs) { return { lufs: lufs(chs, fs), tp: truePeakDb(chs), corr: lowCorr(chs, fs) }; }
+
+// ---------- 메시지 처리 ----------
+if (typeof self !== "undefined" && typeof module === "undefined") {
+  self.onmessage = e => {
+    const { id, op, chs, fs, args } = e.data;
+    const progress = (p, msg) => self.postMessage({ id, progress: p, msg });
+    try {
+      let res, transfer = [];
+      if (op === "analyze") res = analyze(chs, fs, args.shorts, progress);
+      else if (op === "lufs") res = lufs(chs, fs);
+      else if (op === "measure") res = measure(chs, fs);
+      else if (op === "denoise") {
+        res = denoise(chs, fs, args.strength, progress);
+        transfer = [...res.out, ...res.resid].map(a => a.buffer);
+      } else if (op === "finalize") {
+        progress(0.2, "정밀 측정 중");
+        const out = finalize(chs, fs, args.target, args.ceiling, progress);
+        progress(0.9, "결과 측정 중");
+        res = { out, after: measure(out, fs) };
+        transfer = out.map(a => a.buffer);
+      }
+      self.postMessage({ id, result: res }, transfer);
+    } catch (err) { self.postMessage({ id, error: String(err && err.message || err) }); }
+  };
+}
+if (typeof module !== "undefined") module.exports = { lufs, truePeakDb, finalize, denoise, analyze, measure, makeFFT };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const EQ_BANDS = [
+  { f: 60, type: "lowshelf", label: "초저음 60" }, { f: 150, type: "peaking", q: 1.0, label: "저음 150" },
+  { f: 400, type: "peaking", q: 1.0, label: "중저음 400" }, { f: 1000, type: "peaking", q: 1.0, label: "중음 1k" },
+  { f: 3500, type: "peaking", q: 0.9, label: "선명도 3.5k" }, { f: 10000, type: "highshelf", label: "공기감 10k" }];
+
+const P = { denoiseOn: true, strength: 0.6, hpf: 35, mono: true, eq: [0, 0, 0, 0, 1, 0], comp: 30, exciter: 15, target: -14, ceiling: -1.5, shorts: true };
+const S = { ctx: null, name: "", isSample: true, orig: null, proc: null, resid: null, analysis: null,
+  playing: false, startAt: 0, offset: 0, sources: [], monitor: "proc", live: null, routes: null,
+  previewGain: 0, denoiseJob: 0, lastExport: null, downloads: null };
+
+// ---------- 워커 ----------
+const worker = new Worker(URL.createObjectURL(new Blob([$("dsp-src").textContent], { type: "text/javascript" })));
+let jobId = 0; const jobs = new Map();
+worker.onmessage = e => {
+  const d = e.data, j = jobs.get(d.id); if (!j) return;
+  if (d.progress !== undefined) { j.onp && j.onp(d.progress, d.msg); return; }
+  jobs.delete(d.id); d.error ? j.rej(new Error(d.error)) : j.res(d.result);
+};
+function work(op, buf, args, onp) {
+  const id = ++jobId;
+  const chs = [buf.getChannelData(0).slice(), buf.getChannelData(buf.numberOfChannels > 1 ? 1 : 0).slice()];
+  return new Promise((res, rej) => { jobs.set(id, { res, rej, onp }); worker.postMessage({ id, op, chs, fs: buf.sampleRate, args: args || {} }, chs.map(c => c.buffer)); });
+}
+
+// ---------- 상태줄 ----------
+let busyCount = 0;
+function status(msg, p) {
+  $("statusText").textContent = msg;
+  $("pbWrap").hidden = p === undefined;
+  if (p !== undefined) $("pb").style.width = Math.round(p * 100) + "%";
+}
+const progressFn = label => (p, msg) => status(`${msg || label} ${Math.round(p * 100)}%`, p);
+
+// ---------- 오디오 그래프 ----------
+function buildChain(ctx) {
+  const n = {};
+  const mk = (type, f, q) => { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; if (q !== undefined) b.Q.value = q; return b; };
+  const g = v => { const x = ctx.createGain(); x.gain.value = v; return x; };
+  // Web Audio의 highpass Q는 dB 단위 → 4차 버터워스(Q 0.541, 1.307)를 dB로 환산
+  n.hp1 = mk("highpass", 35, -5.33); n.hp2 = mk("highpass", 35, 2.33);
+  n.split = ctx.createChannelSplitter(2); n.merge = ctx.createChannelMerger(2);
+  n.mid = g(1); n.side = g(1);
+  const lm = g(0.5), rm = g(0.5), ls = g(0.5), rs = g(-0.5);
+  n.shp1 = mk("highpass", 120, -5.33); n.shp2 = mk("highpass", 120, 2.33);
+  const inv = g(-1);
+  n.hp1.connect(n.hp2); n.hp2.connect(n.split);
+  n.split.connect(lm, 0); n.split.connect(rm, 1); n.split.connect(ls, 0); n.split.connect(rs, 1);
+  lm.connect(n.mid); rm.connect(n.mid); ls.connect(n.side); rs.connect(n.side);
+  n.side.connect(n.shp1); n.shp1.connect(n.shp2);
+  n.mid.connect(n.merge, 0, 0); n.mid.connect(n.merge, 0, 1);
+  n.shp2.connect(n.merge, 0, 0); n.shp2.connect(inv); inv.connect(n.merge, 0, 1);
+  n.eq = EQ_BANDS.map(b => mk(b.type, b.f, b.q));
+  let prev = n.merge; for (const e of n.eq) { prev.connect(e); prev = e; }
+  n.sum = g(1); prev.connect(n.sum);
+  n.exHp = mk("highpass", 2000, -3.01); n.shaper = ctx.createWaveShaper();
+  const curve = new Float32Array(2048); for (let i = 0; i < 2048; i++) { const x = i / 1023.5 - 1; curve[i] = Math.tanh(3 * x) / Math.tanh(3); }
+  n.shaper.curve = curve; n.shaper.oversample = "4x"; n.exG = g(0);
+  prev.connect(n.exHp); n.exHp.connect(n.shaper); n.shaper.connect(n.exG); n.exG.connect(n.sum);
+  n.comp = ctx.createDynamicsCompressor(); n.comp.knee.value = 8; n.comp.attack.value = 0.01; n.comp.release.value = 0.2;
+  n.sum.connect(n.comp);
+  n.input = n.hp1; n.output = n.comp;
+  n.set = p => {
+    if (ctx.state !== "running") return n.setNow(p); // 재생 전에는 즉시 반영
+    const now = ctx.currentTime, at = (prm, v) => { prm.cancelScheduledValues(now); prm.setTargetAtTime(v, now, 0.02); };
+    at(n.hp1.frequency, p.hpf); at(n.hp2.frequency, p.hpf);
+    at(n.shp1.frequency, p.mono ? 120 : 10); at(n.shp2.frequency, p.mono ? 120 : 10);
+    n.eq.forEach((e, i) => at(e.gain, p.eq[i]));
+    at(n.exG.gain, p.exciter / 100 * 0.35);
+    at(n.comp.threshold, -6 - p.comp * 0.24); at(n.comp.ratio, 1.5 + p.comp * 0.035);
+  };
+  // 오프라인 렌더용: 즉시 값 지정
+  n.setNow = p => {
+    [n.hp1, n.hp2, n.shp1, n.shp2].forEach(b => b.frequency.cancelScheduledValues(0)); n.eq.forEach(e => e.gain.cancelScheduledValues(0));
+    n.exG.gain.cancelScheduledValues(0); n.comp.threshold.cancelScheduledValues(0); n.comp.ratio.cancelScheduledValues(0);
+    n.hp1.frequency.value = n.hp2.frequency.value = p.hpf;
+    n.shp1.frequency.value = n.shp2.frequency.value = p.mono ? 120 : 10;
+    n.eq.forEach((e, i) => e.gain.value = p.eq[i]);
+    n.exG.gain.value = p.exciter / 100 * 0.35;
+    n.comp.threshold.value = -6 - p.comp * 0.24; n.comp.ratio.value = 1.5 + p.comp * 0.035;
+  };
+  return n;
+}
+function makeLimiter(ctx, ceil) {
+  const l = ctx.createDynamicsCompressor();
+  l.threshold.value = ceil - 0.5; l.knee.value = 0; l.ratio.value = 20; l.attack.value = 0.001; l.release.value = 0.08;
+  return l;
+}
+function initAudio() {
+  if (S.ctx) return;
+  const ctx = S.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const live = S.live = buildChain(ctx);
+  const R = S.routes = {};
+  R.master = ctx.createGain(); R.analyser = ctx.createAnalyser(); R.analyser.fftSize = 4096; R.analyser.smoothingTimeConstant = 0.8;
+  R.master.connect(R.analyser); R.analyser.connect(ctx.destination);
+  R.procIn = ctx.createGain(); R.procMake = ctx.createGain(); R.procLim = makeLimiter(ctx, P.ceiling); R.procMon = ctx.createGain();
+  R.procIn.connect(live.input); live.output.connect(R.procMake); R.procMake.connect(R.procLim); R.procLim.connect(R.procMon); R.procMon.connect(R.master);
+  R.origIn = ctx.createGain(); R.origMatch = ctx.createGain(); R.origLim = makeLimiter(ctx, P.ceiling); R.origMon = ctx.createGain();
+  R.origIn.connect(R.origMatch); R.origMatch.connect(R.origLim); R.origLim.connect(R.origMon); R.origMon.connect(R.master);
+  R.residIn = ctx.createGain(); R.residIn.gain.value = 2; R.residMon = ctx.createGain();
+  R.residIn.connect(R.residMon); R.residMon.connect(R.master);
+  live.set(P); applyMonitor(true);
+}
+const dbToLin = d => Math.pow(10, d / 20);
+function applyGains() {
+  if (!S.routes) return;
+  const t = S.ctx.currentTime, R = S.routes;
+  R.procMake.gain.setTargetAtTime(dbToLin(S.previewGain), t, 0.05);
+  const m = $("match").checked && S.analysis ? Math.min(24, P.target - S.analysis.lufs) : 0;
+  R.origMatch.gain.setTargetAtTime(dbToLin(m), t, 0.05);
+  R.procLim.threshold.value = R.origLim.threshold.value = P.ceiling - 0.5;
+}
+function applyMonitor(instant) {
+  ["Orig", "Proc", "Resid"].forEach(k => $("mon" + k).setAttribute("aria-pressed", String(S.monitor === k.toLowerCase())));
+  if (!S.routes) return;
+  const t = S.ctx.currentTime, R = S.routes, tc = instant ? 0.001 : 0.015;
+  R.origMon.gain.setTargetAtTime(S.monitor === "orig" ? 1 : 0, t, tc);
+  R.procMon.gain.setTargetAtTime(S.monitor === "proc" ? 1 : 0, t, tc);
+  R.residMon.gain.setTargetAtTime(S.monitor === "resid" ? 1 : 0, t, tc);
+}
+
+// ---------- 재생 ----------
+const curTime = () => S.playing ? Math.min(S.orig.duration, S.ctx.currentTime - S.startAt) : S.offset;
+function stopSources() { S.sources.forEach(s => { s.onended = null; try { s.stop(); } catch (e) {} }); S.sources = []; }
+function startAt(pos) {
+  stopSources();
+  const ctx = S.ctx, R = S.routes, t0 = ctx.currentTime + 0.03;
+  [[S.orig, R.origIn], [S.proc, R.procIn], [S.resid, R.residIn]].forEach(([buf, dest], i) => {
+    if (!buf) return;
+    const s = ctx.createBufferSource(); s.buffer = buf; s.connect(dest); s.start(t0, pos);
+    if (i === 1) s.onended = () => { if (S.playing) { S.playing = false; S.offset = 0; setPlayIcon(); } };
+    S.sources.push(s);
+  });
+  S.startAt = t0 - pos; S.playing = true; setPlayIcon();
+}
+function togglePlay() {
+  if (!S.orig) return;
+  initAudio(); S.ctx.resume();
+  if (S.playing) { S.offset = curTime(); stopSources(); S.playing = false; setPlayIcon(); }
+  else startAt(S.offset >= S.orig.duration - 0.05 ? 0 : S.offset);
+}
+function setPlayIcon() {
+  $("playIcon").innerHTML = S.playing ? '<path d="M6 4h4v16H6zM14 4h4v16h-4z"/>' : '<path d="M7 4.5v15l13-7.5z"/>';
+  $("play").setAttribute("aria-label", S.playing ? "일시정지" : "재생");
+}
+function restartIfPlaying() { if (S.playing) startAt(curTime()); }
+
+// ---------- 파형 ----------
+let wavePeaks = null;
+function computePeaks() {
+  const c0 = S.orig.getChannelData(0), c1 = S.orig.getChannelData(1), cols = 1200, step = Math.floor(c0.length / cols) || 1;
+  wavePeaks = new Float32Array(cols);
+  for (let x = 0; x < cols; x++) { let m = 0; for (let i = x * step; i < (x + 1) * step && i < c0.length; i += 4) { const v = Math.max(Math.abs(c0[i]), Math.abs(c1[i])); if (v > m) m = v; } wavePeaks[x] = m; }
+}
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function fitCanvas(cv) { const r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1; if (cv.width !== Math.round(r.width * d) || cv.height !== Math.round(r.height * d)) { cv.width = Math.round(r.width * d); cv.height = Math.round(r.height * d); } return [cv.width, cv.height, d]; }
+function drawWave() {
+  const cv = $("wave"), [w, h, d] = fitCanvas(cv), g = cv.getContext("2d");
+  g.clearRect(0, 0, w, h);
+  if (!wavePeaks) return;
+  const dur = S.orig.duration;
+  if (S.analysis && P.denoiseOn) { // 잡음 견본 구간
+    g.fillStyle = css("--accent-soft");
+    g.fillRect(S.analysis.noiseStart / dur * w, 0, Math.max(2 * d, 0.5 / dur * w), h);
+  }
+  const pos = curTime() / dur, mid = h / 2;
+  for (let x = 0; x < w; x += d) {
+    const i = Math.floor(x / w * wavePeaks.length), a = wavePeaks[i] * (h / 2 - 4);
+    g.fillStyle = x / w < pos ? css("--accent") : css("--muted");
+    g.globalAlpha = x / w < pos ? 0.95 : 0.5;
+    g.fillRect(x, mid - a, Math.max(1, d * 0.7), a * 2 || 1);
+  }
+  g.globalAlpha = 1; g.fillStyle = css("--ink"); g.fillRect(pos * w - d / 2, 0, d * 1.5, h);
+}
+
+// ---------- EQ 그림 ----------
+const specBuf = new Float32Array(2048);
+function drawEQ() {
+  const cv = $("eqCanvas"), [w, h, d] = fitCanvas(cv), g = cv.getContext("2d");
+  g.clearRect(0, 0, w, h);
+  const fx = f => Math.log10(f / 20) / 3 * w, padTop = 14 * d, plotH = h - padTop - 18 * d;
+  const dy = db => padTop + plotH / 2 - db / 12 * (plotH / 2);
+  g.font = `${10 * d}px ${css("--f-num")}`; g.textBaseline = "top";
+  g.strokeStyle = css("--line"); g.fillStyle = css("--muted"); g.lineWidth = d;
+  [50, 100, 200, 500, 1000, 2000, 5000, 10000].forEach(f => { const x = fx(f); g.beginPath(); g.moveTo(x, padTop); g.lineTo(x, padTop + plotH); g.stroke(); g.fillText(f >= 1000 ? f / 1000 + "k" : String(f), x + 3 * d, padTop + plotH + 4 * d); });
+  [-12, -6, 0, 6, 12].forEach(db => { const y = dy(db); g.globalAlpha = db === 0 ? 1 : 0.5; g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); g.globalAlpha = 1; g.fillText((db > 0 ? "+" : "") + db, 3 * d, y - (db === 12 ? -2 : 12) * d); });
+  // 실시간 스펙트럼
+  if (S.routes && S.playing) {
+    const an = S.routes.analyser; an.getFloatFrequencyData(specBuf);
+    const nyq = S.ctx.sampleRate / 2;
+    g.beginPath(); g.moveTo(0, padTop + plotH);
+    for (let x = 0; x <= w; x += 2 * d) {
+      const f = 20 * Math.pow(1000, x / w), k = Math.min(specBuf.length - 1, Math.round(f / nyq * specBuf.length));
+      const v = Math.max(0, Math.min(1, (specBuf[k] + 100) / 80));
+      g.lineTo(x, padTop + plotH - v * plotH);
+    }
+    g.lineTo(w, padTop + plotH); g.closePath();
+    g.fillStyle = css("--cool"); g.globalAlpha = 0.18; g.fill(); g.globalAlpha = 1;
+  }
+  // EQ 응답 곡선 (HPF 포함)
+  if (S.live) {
+    const N = 200, fr = new Float32Array(N), mag = new Float32Array(N), ph = new Float32Array(N), tot = new Float32Array(N).fill(0);
+    for (let i = 0; i < N; i++) fr[i] = 20 * Math.pow(1000, i / (N - 1));
+    [S.live.hp1, S.live.hp2, ...S.live.eq].forEach(node => { node.getFrequencyResponse(fr, mag, ph); for (let i = 0; i < N; i++) tot[i] += 20 * Math.log10(mag[i] + 1e-9); });
+    g.beginPath();
+    for (let i = 0; i < N; i++) { const x = fx(fr[i]), y = dy(Math.max(-14, Math.min(14, tot[i]))); i ? g.lineTo(x, y) : g.moveTo(x, y); }
+    g.strokeStyle = css("--accent"); g.lineWidth = 2 * d; g.stroke();
+    EQ_BANDS.forEach((b, i) => { g.beginPath(); g.arc(fx(b.f), dy(P.eq[i]), 3.5 * d, 0, 7); g.fillStyle = css("--accent"); g.fill(); });
+  }
+}
+
+// ---------- 루프 ----------
+const fmt = t => { const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s.toFixed(1).padStart(4, "0")}`; };
+const meterBuf = new Float32Array(2048);
+function loop() {
+  if (S.orig) {
+    $("time").textContent = `${fmt(curTime())} / ${fmt(S.orig.duration)}`;
+    drawWave();
+    if (S.routes && S.playing) {
+      S.routes.analyser.getFloatTimeDomainData(meterBuf);
+      let m = 0; for (let i = 0; i < meterBuf.length; i++) { const a = Math.abs(meterBuf[i]); if (a > m) m = a; }
+      const db = 20 * Math.log10(m + 1e-9), pct = Math.max(0, Math.min(1, (db + 40) / 40));
+      $("meterBar").style.width = pct * 100 + "%"; $("meterBar").classList.toggle("hot", db > P.ceiling);
+      $("meterVal").textContent = (db < -90 ? "-∞" : db.toFixed(1)) + " dB";
+    }
+  }
+  drawEQ();
+  requestAnimationFrame(loop);
+}
+
+// ---------- 처리 흐름 ----------
+function silentLike(buf) { return S.ctx.createBuffer(2, buf.length, buf.sampleRate); }
+function bufFrom(chs, sr) { const b = S.ctx.createBuffer(2, chs[0].length, sr); b.copyToChannel(chs[0], 0); b.copyToChannel(chs[1], 1); return b; }
+
+async function runDenoise() {
+  const my = ++S.denoiseJob;
+  if (!P.denoiseOn) { S.proc = S.orig; S.resid = silentLike(S.orig); restartIfPlaying(); scheduleCalibrate(); status("잡음 제거 꺼짐"); return; }
+  const r = await work("denoise", S.orig, { strength: P.strength }, progressFn("잡음 제거 중"));
+  if (my !== S.denoiseJob) return;
+  S.proc = bufFrom(r.out, S.orig.sampleRate); S.resid = bufFrom(r.resid, S.orig.sampleRate);
+  $("dnInfo").innerHTML = `잡음 견본: <b class="num">${fmt(r.noiseStart)}</b> 부근 0.5초 구간 (파형의 노란 부분). 견본 구간에 노래가 있으면 강도를 낮추세요.`;
+  restartIfPlaying(); scheduleCalibrate(); status("준비 완료 · 재생해서 들어보세요");
+}
+
+// 가장 큰 15초 구간을 오프라인으로 처리해 미리듣기 음량을 목표치에 맞춤
+let calTimer = 0, calJob = 0;
+function scheduleCalibrate() { clearTimeout(calTimer); calTimer = setTimeout(calibrate, 450); }
+async function calibrate() {
+  if (!S.proc || !S.analysis) return;
+  const my = ++calJob, sr = S.proc.sampleRate;
+  const start = Math.max(0, Math.min(S.analysis.loudestStart, S.proc.duration - 15)), len = Math.min(15, S.proc.duration);
+  const off = new OfflineAudioContext(2, Math.floor(len * sr), sr);
+  const ch = buildChain(off); ch.setNow(P);
+  const src = off.createBufferSource(); src.buffer = S.proc; src.connect(ch.input); ch.output.connect(off.destination); src.start(0, start, len);
+  const rendered = await off.startRendering();
+  const L = await work("lufs", rendered);
+  if (my !== calJob) return;
+  S.previewGain = Math.max(-20, Math.min(30, P.target - L)); applyGains();
+}
+
+async function loadBuffer(decoded, name, isSample) {
+  initAudio();
+  if (S.playing) { stopSources(); S.playing = false; setPlayIcon(); }
+  // 항상 2채널로
+  const b = S.ctx.createBuffer(2, decoded.length, decoded.sampleRate);
+  b.copyToChannel(decoded.getChannelData(0), 0); b.copyToChannel(decoded.getChannelData(decoded.numberOfChannels > 1 ? 1 : 0), 1);
+  S.orig = b; S.proc = b; S.resid = silentLike(b); S.offset = 0; S.name = name; S.isSample = isSample; S.lastExport = null; S.lastFinal = null;
+  $("fname").innerHTML = ""; $("fname").textContent = name;
+  if (isSample) { const c = document.createElement("span"); c.className = "chip"; c.textContent = "예시 음원"; $("fname").appendChild(c); }
+  $("saveBtn").hidden = true; $("saveNote").hidden = true;
+  ["rL0", "rL1", "rT0", "rT1", "rC0", "rC1"].forEach(id => $(id).textContent = "—");
+  computePeaks();
+  S.analysis = await work("analyze", b, { shorts: P.shorts }, progressFn("곡 분석 중"));
+  showStats();
+  await runDenoise();
+}
+function showStats() {
+  const a = S.analysis;
+  $("stats").innerHTML = `<span>원본 음량 <b class="num">${a.lufs.toFixed(1)} LUFS</b></span><span>최고점 <b class="num">${a.tp.toFixed(1)} dBTP</b></span>` +
+    `<span>잡음 대비 <b class="num">${a.snr > 200 ? "∞" : a.snr.toFixed(0) + " dB"}</b></span><span>저음 일치도 <b class="num">${a.corr.toFixed(2)}</b></span>`;
+}
+
+// ---------- 오토 ----------
+async function runAuto() {
+  if (!S.orig) return;
+  $("autoBtn").disabled = true;
+  try {
+    S.analysis = await work("analyze", S.orig, { shorts: P.shorts }, progressFn("곡 분석 중"));
+    showStats();
+    const r = S.analysis.rec;
+    const dnChanged = (r.denoise > 0) !== P.denoiseOn || Math.abs(r.denoise - P.strength) > 0.01;
+    P.denoiseOn = r.denoise > 0; if (r.denoise > 0) P.strength = r.denoise;
+    P.eq = r.eq.slice(); P.hpf = r.hpf; P.mono = r.mono; P.comp = r.comp; P.exciter = r.exciter;
+    syncUI(); S.live.set(P); eqCommit("오토 보정 적용");
+    $("reportEmpty").hidden = true;
+    $("notes").innerHTML = "";
+    r.notes.forEach(([t, d]) => { const el = document.createElement("div"); el.className = "note"; el.innerHTML = "<b></b><span></span>"; el.firstChild.textContent = t; el.lastChild.textContent = d; $("notes").appendChild(el); });
+    if (dnChanged) await runDenoise(); else scheduleCalibrate();
+    status("오토 보정 적용됨 · 원본과 보정을 번갈아 들어보세요");
+  } catch (e) { status("분석 실패: " + e.message); }
+  $("autoBtn").disabled = false;
+}
+
+// ---------- 내보내기 ----------
+function encodeWav24(chs, sr) {
+  const n = chs[0].length, data = n * 2 * 3, buf = new ArrayBuffer(44 + data), v = new DataView(buf);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, "RIFF"); v.setUint32(4, 36 + data, true); w(8, "WAVE"); w(12, "fmt "); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 2, true); v.setUint32(24, sr, true); v.setUint32(28, sr * 6, true);
+  v.setUint16(32, 6, true); v.setUint16(34, 24, true); w(36, "data"); v.setUint32(40, data, true);
+  const u8 = new Uint8Array(buf); let o = 44;
+  for (let i = 0; i < n; i++) for (let c = 0; c < 2; c++) {
+    let s = Math.round(Math.max(-1, Math.min(1, chs[c][i])) * 8388607); if (s < 0) s += 16777216;
+    u8[o++] = s & 255; u8[o++] = (s >> 8) & 255; u8[o++] = (s >> 16) & 255;
+  }
+  return u8;
+}
+// 16-bit 변환 (TPDF 디더: 비트 줄일 때 생기는 거친 잡음을 고르게 퍼뜨림)
+function toInt16(c) {
+  const out = new Int16Array(c.length);
+  for (let i = 0; i < c.length; i++) {
+    const d = (Math.random() - Math.random()) / 32768;
+    out[i] = Math.max(-32768, Math.min(32767, Math.round((c[i] + d) * 32767)));
+  }
+  return out;
+}
+function encodeWav16(chs, sr) {
+  const n = chs[0].length, data = n * 4, buf = new ArrayBuffer(44 + data), v = new DataView(buf);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, "RIFF"); v.setUint32(4, 36 + data, true); w(8, "WAVE"); w(12, "fmt "); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 2, true); v.setUint32(24, sr, true); v.setUint32(28, sr * 4, true);
+  v.setUint16(32, 4, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, data, true);
+  const l = toInt16(chs[0]), r = toInt16(chs[1]), pcm = new Int16Array(buf, 44);
+  for (let i = 0; i < n; i++) { pcm[2 * i] = l[i]; pcm[2 * i + 1] = r[i]; }
+  return new Uint8Array(buf);
+}
+// MP3 인코더는 별도 워커에서 실행 (화면이 멈추지 않게)
+let mp3Worker = null;
+function getMp3Worker() {
+  if (mp3Worker) return mp3Worker;
+  if (typeof window.lamejs !== "function") return null;
+  const src = window.lamejs.toString() + `;lamejs();
+self.onmessage = e => {
+  const { chs, sr, kbps } = e.data, n = chs[0].length;
+  const q = c => { const o = new Int16Array(c.length); for (let i = 0; i < c.length; i++) { const d = (Math.random() - Math.random()) / 32768; o[i] = Math.max(-32768, Math.min(32767, Math.round((c[i] + d) * 32767))); } return o; };
+  const L = q(chs[0]), R = q(chs[1]), enc = new lamejs.Mp3Encoder(2, sr, kbps), parts = [], step = 1152 * 40;
+  let size = 0;
+  for (let i = 0; i < n; i += step) {
+    const b = enc.encodeBuffer(L.subarray(i, i + step), R.subarray(i, i + step));
+    if (b.length) { parts.push(b); size += b.length; }
+    if ((i / step) % 25 === 0) self.postMessage({ progress: i / n });
+  }
+  const f = enc.flush(); if (f.length) { parts.push(f); size += f.length; }
+  const out = new Uint8Array(size); let o = 0; for (const p of parts) { out.set(new Uint8Array(p.buffer, p.byteOffset, p.length), o); o += p.length; }
+  self.postMessage({ result: out }, [out.buffer]);
+};`;
+  mp3Worker = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
+  return mp3Worker;
+}
+function encodeMp3(chs, sr, kbps, onp) {
+  const w = getMp3Worker();
+  if (!w) return Promise.reject(new Error("MP3 인코더를 불러오지 못했습니다 (인터넷 연결 확인)"));
+  return new Promise((res, rej) => {
+    w.onmessage = e => { if (e.data.progress !== undefined) onp && onp(e.data.progress); else res(e.data.result); };
+    w.onerror = e => rej(new Error(e.message || "MP3 인코딩 오류"));
+    const copy = chs.map(c => c.slice());
+    w.postMessage({ chs: copy, sr, kbps }, copy.map(c => c.buffer));
+  });
+}
+const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(u8) { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function zipMany(files) {
+  const parts = [], central = []; let offset = 0;
+  for (const f of files) {
+    const nm = new TextEncoder().encode(f.name), crc = crc32(f.data), len = f.data.length;
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint32(14, crc, true);
+    lh.setUint32(18, len, true); lh.setUint32(22, len, true); lh.setUint16(26, nm.length, true);
+    const cd = new DataView(new ArrayBuffer(46));
+    cd.setUint32(0, 0x02014b50, true); cd.setUint16(4, 20, true); cd.setUint16(6, 20, true); cd.setUint16(8, 0x0800, true);
+    cd.setUint32(16, crc, true); cd.setUint32(20, len, true); cd.setUint32(24, len, true); cd.setUint16(28, nm.length, true);
+    cd.setUint32(42, offset, true);
+    parts.push(lh, nm, f.data); central.push(cd, nm);
+    offset += 30 + nm.length + len;
+  }
+  const cdSize = central.reduce((s, x) => s + x.byteLength, 0), end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+  end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, end], { type: "application/zip" });
+}
+function zipOne(name, data) {
+  const nm = new TextEncoder().encode(name), crc = crc32(data);
+  const lh = new DataView(new ArrayBuffer(30)), cd = new DataView(new ArrayBuffer(46)), end = new DataView(new ArrayBuffer(22));
+  lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint32(14, crc, true);
+  lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true); lh.setUint16(26, nm.length, true);
+  cd.setUint32(0, 0x02014b50, true); cd.setUint16(4, 20, true); cd.setUint16(6, 20, true); cd.setUint16(8, 0x0800, true);
+  cd.setUint32(16, crc, true); cd.setUint32(20, data.length, true); cd.setUint32(24, data.length, true); cd.setUint16(28, nm.length, true);
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, 1, true); end.setUint16(10, 1, true);
+  end.setUint32(12, 46 + nm.length, true); end.setUint32(16, 30 + nm.length + data.length, true);
+  return new Blob([lh, nm, data, cd, nm, end], { type: "application/zip" });
+}
+async function exportMaster() {
+  if (!S.proc) return;
+  $("exportBtn").disabled = true;
+  try {
+    status("전체 곡 처리 중", 0.05);
+    const sr = 48000, off = new OfflineAudioContext(2, Math.ceil(S.proc.duration * sr), sr);
+    const ch = buildChain(off); ch.setNow(P);
+    const src = off.createBufferSource(); src.buffer = S.proc; src.connect(ch.input); ch.output.connect(off.destination); src.start();
+    const rendered = await off.startRendering();
+    const r = await work("finalize", rendered, { target: P.target, ceiling: P.ceiling }, progressFn("마무리 중"));
+    S.lastFinal = { chs: r.out, sr, base: S.name.replace(/\.[^.]+$/, "") + (P.shorts ? "_shorts_master" : "_master") };
+    const a = S.analysis, b = r.after;
+    $("rL0").textContent = a.lufs.toFixed(1); $("rT0").textContent = a.tp.toFixed(1); $("rC0").textContent = a.corr.toFixed(2);
+    $("rL1").textContent = b.lufs.toFixed(1); $("rT1").textContent = b.tp.toFixed(1); $("rC1").textContent = b.corr.toFixed(2);
+    const mark = (id, ok, txt) => { $(id).innerHTML = ""; const s = document.createElement("span"); s.className = ok ? "ok" : "ng"; s.textContent = (ok ? "통과 · " : "확인 필요 · ") + txt; $(id).appendChild(s); };
+    mark("rLs", Math.abs(b.lufs - P.target) <= 0.5, `목표 ${P.target}`);
+    mark("rTs", b.tp <= P.ceiling + 0.05, `상한 ${P.ceiling}`);
+    mark("rCs", b.corr >= 0.9, "0.9 이상");
+    await packAndSave();
+  } catch (e) { status("내보내기 실패: " + e.message); }
+  $("exportBtn").disabled = false;
+}
+function selectedFormats() {
+  const f = [];
+  if ($("fmtW24").checked) f.push("w24");
+  if ($("fmtW16").checked) f.push("w16");
+  if ($("fmtMp3").checked) f.push("mp3");
+  return f;
+}
+async function packAndSave() {
+  const L = S.lastFinal; if (!L) return;
+  const fm = selectedFormats();
+  if (!fm.length) { status("저장 형식을 하나 이상 골라주세요"); return; }
+  $("exportBtn").disabled = $("saveBtn").disabled = true;
+  try {
+    const files = [];
+    if (fm.includes("w24")) { status("WAV 24-bit 만드는 중", 0.1); await new Promise(r => setTimeout(r, 30)); files.push({ name: L.base + ".wav", data: encodeWav24(L.chs, L.sr) }); }
+    if (fm.includes("w16")) { status("WAV 16-bit 만드는 중", 0.2); await new Promise(r => setTimeout(r, 30)); files.push({ name: L.base + "_16bit.wav", data: encodeWav16(L.chs, L.sr) }); }
+    if (fm.includes("mp3")) {
+      const kbps = +$("mp3Rate").value;
+      const mp3 = await encodeMp3(L.chs, L.sr, kbps, p => status(`MP3 ${kbps}kbps 만드는 중 ${Math.round(p * 100)}%`, 0.25 + p * 0.7));
+      files.push({ name: `${L.base}_${kbps}k.mp3`, data: mp3 });
+    }
+    status("zip으로 묶는 중", 0.97);
+    S.lastExport = files.length === 1
+      ? { blob: new Blob([files[0].data], { type: files[0].name.endsWith(".mp3") ? "audio/mpeg" : "audio/wav" }), filename: files[0].name, names: [files[0].name] }
+      : { blob: zipMany(files), filename: L.base + ".zip", names: files.map(f => f.name) };
+    status("파일 준비 완료");
+    await saveExport();
+    $("saveBtn").hidden = false;
+  } catch (e) { status("저장 실패: " + e.message); }
+  $("exportBtn").disabled = $("saveBtn").disabled = false;
+}
+async function saveExport() {
+  if (!S.lastExport) return;
+  const note = $("saveNote"); note.hidden = false;
+  const url = URL.createObjectURL(S.lastExport.blob), a = document.createElement("a");
+  a.href = url; a.download = S.lastExport.filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  note.textContent = S.lastExport.names.length > 1
+    ? `${S.lastExport.filename} 를 내려받았습니다. 압축을 풀면 ${S.lastExport.names.join(", ")} 파일이 들어 있습니다.`
+    : `${S.lastExport.filename} 를 내려받았습니다.`;
+  $("saveBtn").hidden = false;
+}
+
+// ---------- EQ 이전/이후 ----------
+const H = { list: [], idx: -1 };
+const eqSnap = () => ({ eq: P.eq.slice(), hpf: P.hpf, mono: P.mono });
+const sameSnap = (a, b) => a.hpf === b.hpf && a.mono === b.mono && a.eq.every((v, i) => v === b.eq[i]);
+const sgn = v => (v > 0 ? "+" : "") + v.toFixed(1);
+function describe(prev, cur) {
+  const ch = [];
+  cur.eq.forEach((v, i) => { if (v !== prev.eq[i]) ch.push(`${EQ_BANDS[i].label} ${sgn(prev.eq[i])} → ${sgn(v)} dB`); });
+  if (cur.hpf !== prev.hpf) ch.push(`초저음 컷 ${prev.hpf} → ${cur.hpf} Hz`);
+  if (cur.mono !== prev.mono) ch.push(`저음 모노 ${cur.mono ? "켜기" : "끄기"}`);
+  return ch.length > 2 ? `${ch.slice(0, 2).join(", ")} 외 ${ch.length - 2}개` : ch.join(", ");
+}
+function eqCommit(label) {
+  const s = eqSnap(), cur = H.list[H.idx];
+  if (cur && sameSnap(cur, s)) return;
+  s.label = label || (cur ? describe(cur, s) : "처음 설정");
+  H.list = H.list.slice(0, H.idx + 1); H.list.push(s);
+  if (H.list.length > 60) H.list.shift();
+  H.idx = H.list.length - 1; eqHistUI();
+}
+function eqGo(step) {
+  const ni = H.idx + step; if (ni < 0 || ni >= H.list.length) return;
+  const from = H.list[H.idx]; H.idx = ni; const s = H.list[ni];
+  P.eq = s.eq.slice(); P.hpf = s.hpf; P.mono = s.mono;
+  syncUI(); S.live && S.live.set(P); scheduleCalibrate(); eqHistUI(step < 0 ? from.label : null);
+}
+function eqHistUI(undone) {
+  $("eqUndo").disabled = H.idx <= 0; $("eqRedo").disabled = H.idx >= H.list.length - 1;
+  $("eqStep").textContent = `${H.idx + 1} / ${H.list.length}`;
+  const el = $("eqLast"); el.innerHTML = "";
+  const b = document.createElement("b");
+  if (undone) { el.append("되돌림: "); b.textContent = undone; }
+  else { el.append(H.idx > 0 ? "현재: " : ""); b.textContent = H.list[H.idx].label; }
+  el.appendChild(b);
+}
+
+// ---------- UI 연결 ----------
+function syncUI() {
+  $("dnOn").checked = P.denoiseOn; $("dnStr").value = P.strength; $("dnStrV").textContent = P.strength.toFixed(2);
+  $("hpf").value = P.hpf; $("hpfV").textContent = P.hpf + " Hz"; $("mono").checked = P.mono;
+  $("comp").value = P.comp; $("compV").textContent = P.comp + "%"; $("exc").value = P.exciter; $("excV").textContent = P.exciter + "%";
+  $("target").value = String(P.target); $("ceil").value = String(P.ceiling); $("shorts").checked = P.shorts;
+  P.eq.forEach((g, i) => { $("eq" + i).value = g; $("eqv" + i).textContent = (g > 0 ? "+" : "") + g.toFixed(1) + " dB"; });
+}
+function buildEQControls() {
+  EQ_BANDS.forEach((b, i) => {
+    const d = document.createElement("div"); d.className = "ctl";
+    d.innerHTML = `<div class="ctl-head"><label for="eq${i}"></label><output id="eqv${i}">0.0 dB</output></div><input type="range" id="eq${i}" min="-12" max="12" step="0.5" value="0">`;
+    d.querySelector("label").textContent = b.label;
+    $("eqGrid").appendChild(d);
+    const inp = d.querySelector("input");
+    inp.addEventListener("input", () => { P.eq[i] = +inp.value; $("eqv" + i).textContent = (P.eq[i] > 0 ? "+" : "") + P.eq[i].toFixed(1) + " dB"; S.live && S.live.set(P); scheduleCalibrate(); });
+    inp.addEventListener("change", () => eqCommit());
+    inp.addEventListener("dblclick", () => { inp.value = 0; inp.dispatchEvent(new Event("input")); eqCommit(); });
+  });
+}
+function liveCtl(id, key, fmtV) {
+  $(id).addEventListener("input", () => { P[key] = +$(id).value; $(id + "V").textContent = fmtV(P[key]); S.live && S.live.set(P); scheduleCalibrate(); });
+}
+function wire() {
+  buildEQControls();
+  liveCtl("hpf", "hpf", v => v + " Hz"); $("hpf").addEventListener("change", () => eqCommit()); liveCtl("comp", "comp", v => v + "%"); liveCtl("exc", "exciter", v => v + "%");
+  $("mono").addEventListener("change", () => { P.mono = $("mono").checked; S.live && S.live.set(P); scheduleCalibrate(); eqCommit(); });
+  $("eqUndo").addEventListener("click", () => eqGo(-1)); $("eqRedo").addEventListener("click", () => eqGo(1));
+  $("eqFlat").addEventListener("click", () => { P.eq = [0, 0, 0, 0, 0, 0]; syncUI(); S.live && S.live.set(P); scheduleCalibrate(); eqCommit("평평하게 (모든 밴드 0 dB)"); });
+  $("dnStr").addEventListener("input", () => { $("dnStrV").textContent = (+$("dnStr").value).toFixed(2); });
+  $("dnStr").addEventListener("change", () => { P.strength = +$("dnStr").value; if (P.denoiseOn && S.orig) runDenoise(); });
+  $("dnOn").addEventListener("change", () => { P.denoiseOn = $("dnOn").checked; if (S.orig) runDenoise(); });
+  $("target").addEventListener("change", () => { P.target = +$("target").value; scheduleCalibrate(); applyGains(); });
+  $("ceil").addEventListener("change", () => { P.ceiling = +$("ceil").value; applyGains(); });
+  $("shorts").addEventListener("change", () => { P.shorts = $("shorts").checked; });
+  $("match").addEventListener("change", applyGains);
+  $("play").addEventListener("click", togglePlay);
+  [["monOrig", "orig"], ["monProc", "proc"], ["monResid", "resid"]].forEach(([id, m]) => $(id).addEventListener("click", () => { S.monitor = m; applyMonitor(); }));
+  $("waveBox").addEventListener("click", e => {
+    if (!S.orig) return;
+    const r = $("waveBox").getBoundingClientRect(), pos = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * S.orig.duration;
+    if (S.playing) startAt(pos); else S.offset = pos;
+  });
+  $("autoBtn").addEventListener("click", runAuto);
+  $("exportBtn").addEventListener("click", exportMaster);
+  $("saveBtn").addEventListener("click", packAndSave);
+  $("fmtMp3").addEventListener("change", () => $("mp3Rate").disabled = !$("fmtMp3").checked);
+  $("file").addEventListener("change", e => { const f = e.target.files[0]; if (f) openFile(f); e.target.value = ""; });
+  document.addEventListener("keydown", e => {
+    if ((e.ctrlKey || e.metaKey) && !/SELECT|TEXTAREA/.test(document.activeElement.tagName)) {
+      const k = e.key.toLowerCase();
+      if (k === "z" && !e.shiftKey) { e.preventDefault(); eqGo(-1); return; }
+      if (k === "y" || (k === "z" && e.shiftKey)) { e.preventDefault(); eqGo(1); return; }
+    } if (e.code === "Space" && !/INPUT|SELECT|BUTTON/.test(document.activeElement.tagName)) { e.preventDefault(); togglePlay(); } });
+  let dragDepth = 0;
+  window.addEventListener("dragenter", e => { if (e.dataTransfer && [...e.dataTransfer.types].includes("Files")) { dragDepth++; $("drop").hidden = false; } });
+  window.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; $("drop").hidden = true; } });
+  window.addEventListener("dragover", e => e.preventDefault());
+  window.addEventListener("drop", e => { e.preventDefault(); dragDepth = 0; $("drop").hidden = true; const f = e.dataTransfer.files[0]; if (f) openFile(f); });
+}
+async function openFile(f) {
+  try {
+    initAudio(); status("파일 읽는 중", 0.02);
+    const decoded = await S.ctx.decodeAudioData(await f.arrayBuffer());
+    $("reportEmpty").hidden = false; $("notes").innerHTML = "";
+    await loadBuffer(decoded, f.name, false);
+  } catch (e) { status("이 파일을 읽지 못했습니다. WAV, MP3, FLAC, M4A 파일을 넣어주세요."); }
+}
+
+// ---------- 예시 음원 (테스트용 신호: 잡음·초저음·저음 위상 문제 포함) ----------
+function makeSample() {
+  const sr = S.ctx.sampleRate, dur = 12, n = sr * dur, b = S.ctx.createBuffer(2, n, sr), L = b.getChannelData(0), R = b.getChannelData(1);
+  let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647 * 2 - 1;
+  const chords = [[220, 277.2, 329.6], [196, 246.9, 293.7], [174.6, 220, 261.6], [196, 246.9, 293.7]];
+  const melody = [659.3, 587.3, 523.3, 587.3, 659.3, 659.3, 659.3, 587.3, 587.3, 659.3, 784, 784];
+  for (let i = 0; i < n; i++) {
+    const t = i / sr, intro = t < 1.5;
+    let l = 0, r = 0;
+    if (!intro) {
+      const tb = (t - 1.5) % 0.5, kick = Math.sin(2 * Math.PI * (50 + 80 * Math.exp(-tb * 30)) * tb) * Math.exp(-tb * 7) * 0.55;
+      const bar = Math.floor((t - 1.5) / 2) % 4, bassF = chords[bar][0] / 4;
+      const bass = Math.sin(2 * Math.PI * bassF * t) * 0.22;
+      let pad = 0; for (const f of chords[bar]) pad += Math.sin(2 * Math.PI * f * t) * 0.05 + Math.sin(2 * Math.PI * f * 2.003 * t) * 0.015;
+      const ni = Math.floor((t - 1.5) / 0.75) % melody.length, nt = (t - 1.5) % 0.75;
+      const vib = 1 + 0.004 * Math.sin(2 * Math.PI * 5.5 * t), mf = melody[ni] * vib;
+      const voc = (Math.sin(2 * Math.PI * mf * t) * 0.5 + Math.sin(2 * Math.PI * mf * 2 * t) * 0.25 + Math.sin(2 * Math.PI * mf * 3 * t) * 0.18 + Math.sin(2 * Math.PI * mf * 5 * t) * 0.07) * Math.min(1, nt * 20) * Math.exp(-nt * 1.6) * 0.16;
+      const hat = ((t - 1.5) % 0.25) < 0.02 ? rnd() * 0.05 * Math.exp(-((t - 1.5) % 0.25) * 200) : 0;
+      l = kick + bass + pad + voc + hat; r = kick - bass * 0.6 + pad * 0.9 + voc + hat; // 저음 좌우 위상 어긋남
+    }
+    const rumble = Math.sin(2 * Math.PI * 18 * t) * 0.06, hiss = 0.012;
+    L[i] = l + rumble + rnd() * hiss; R[i] = r + rumble + rnd() * hiss;
+  }
+  let m = 0; for (let i = 0; i < n; i++) m = Math.max(m, Math.abs(L[i]), Math.abs(R[i]));
+  for (let i = 0; i < n; i++) { L[i] *= 0.98 / m; R[i] *= 0.98 / m; }
+  return b;
+}
+
+// ---------- 시작 ----------
+if (typeof window.lamejs !== "function") { $("fmtMp3").checked = false; $("fmtMp3").disabled = true; $("mp3Rate").disabled = true; $("mp3Note").textContent = "MP3 인코더를 불러오지 못해 MP3는 지금 쓸 수 없습니다. 페이지를 새로고침해 보세요."; }
+if (window.parent !== window) {
+  const sendH = () => parent.postMessage({ type: "smc-height", h: Math.ceil(document.body.getBoundingClientRect().height) }, "*");
+  new ResizeObserver(sendH).observe(document.body); window.addEventListener("load", sendH); setTimeout(sendH, 500);
+  const of = $("openFull"); of.href = location.href.split("?")[0]; of.hidden = false;
+}
+wire(); syncUI(); eqCommit("처음 설정"); requestAnimationFrame(loop);
+initAudio();
+loadBuffer(makeSample(), "예시곡", true).catch(e => status("초기화 실패: " + e.message));
+</script>
+
+</body>
+</html>
